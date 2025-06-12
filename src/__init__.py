@@ -1,0 +1,3 @@
+"""
+Insurance Risk Analytics package
+""" 

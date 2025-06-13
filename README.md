@@ -1,3 +1,4 @@
+
 # Insurance Risk Analytics
 
 A comprehensive Python-based analytics toolkit for insurance risk assessment and portfolio analysis. This project provides powerful tools for analyzing insurance data, identifying patterns, and generating insights to support risk management decisions.
@@ -104,11 +105,3 @@ The analysis expects the following key columns in your dataset:
 - Make
 - TransactionMonth
 - VehicleIntroDate
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.

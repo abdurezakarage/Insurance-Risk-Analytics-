@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from scipy import stats
+from matplotlib.ticker import FuncFormatter
 
 class InsuranceAnalysis:
     def __init__(self, df):
@@ -13,37 +14,249 @@ class InsuranceAnalysis:
         """Load the insurance data from CSV file."""
         return pd.read_csv(file_path)
 
-    def analyze_portfolio(self):
-        """Analyze overall portfolio metrics and key insights."""
-        # Overall Loss Ratio
-        loss_ratio = self.df['TotalClaims'] / self.df['TotalPremium']
-        print("\nOverall Portfolio Loss Ratio:")
-        print(loss_ratio.mean())
-        
-        # Loss Ratio by Province
-        print("\nLoss Ratio by Province:")
-        self.plot_grouped_loss_ratio('Province')
-        
-        # Loss Ratio by Vehicle Type
-        print("\nLoss Ratio by Vehicle Type:")
-        self.plot_grouped_loss_ratio('VehicleType')
-        
-        # Loss Ratio by Gender
-        print("\nLoss Ratio by Gender:")
-        self.plot_grouped_loss_ratio('Gender')
+    def analyze_data_types(self):
+        """Analyze and display data types of all columns."""
+        print("\n=== Data Types Analysis ===")
+        dtype_info = pd.DataFrame({
+            'Data Type': self.df.dtypes,
+            'Non-Null Count': self.df.count(),
+            'Null Count': self.df.isnull().sum(),
+            'Null Percentage': (self.df.isnull().sum() / len(self.df) * 100).round(2)
+        })
+        print(dtype_info)
+        return dtype_info
 
-    def plot_grouped_loss_ratio(self, group_by):
-        grouped = self.df.groupby(group_by).apply(
-            lambda x: x['TotalClaims'].sum() / x['TotalPremium'].sum()
-        ).sort_values(ascending=False)
+    def analyze_data_structure(self):
+        """Analyze data types and structure of the dataset."""
+        print("\nData Types Information:")
+        print(self.df.dtypes)
+        
+        print("\nMemory Usage:")
+        print(self.df.memory_usage(deep=True).sum() / 1024**2, "MB")
+        
+        # Convert date columns if they exist
+        date_columns = ['TransactionMonth', 'VehicleIntroDate']
+        for col in date_columns:
+            if col in self.df.columns:
+                self.df[col] = pd.to_datetime(self.df[col])
+                print(f"\nConverted {col} to datetime")
+
+    def analyze_missing_values(self):
+        """Comprehensive analysis of missing values in the dataset."""
+        # Calculate missing value statistics
+        missing_stats = pd.DataFrame({
+            'Missing Count': self.df.isnull().sum(),
+            'Missing Percentage': (self.df.isnull().sum() / len(self.df) * 100).round(2),
+            'Non-Null Count': self.df.count(),
+            'Total Rows': len(self.df)
+        })
+
+        # Sort by missing percentage
+        missing_stats = missing_stats.sort_values('Missing Percentage', ascending=False)
+
+        print("\n=== Missing Values Analysis ===")
+        print("\nMissing Values Summary:")
+        print(missing_stats)
+
+        # Plot missing values heatmap
         plt.figure(figsize=(12, 6))
-        grouped.plot(kind='bar')
-        plt.title(f'Loss Ratio by {group_by}')
-        plt.xlabel(group_by)
-        plt.ylabel('Loss Ratio')
+        sns.heatmap(self.df.isnull(), yticklabels=False, cbar=False, cmap='viridis')
+        plt.title('Missing Values Heatmap')
+        plt.tight_layout()
+        plt.show()
+
+        # Plot missing values percentage bar chart
+        plt.figure(figsize=(12, 6))
+        missing_stats['Missing Percentage'].plot(kind='bar')
+        plt.title('Missing Values Percentage by Column')
+        plt.xlabel('Columns')
+        plt.ylabel('Missing Percentage')
         plt.xticks(rotation=45)
         plt.tight_layout()
         plt.show()
+
+        # Analyze patterns in missing values
+        print("\nMissing Values Patterns:")
+        missing_patterns = self.analyze_missing_patterns()
+        print(missing_patterns)
+
+        return missing_stats
+
+    def analyze_missing_patterns(self):
+        """Analyze patterns in missing values across columns."""
+        missing_matrix = self.df.isnull().astype(int)
+        missing_corr = missing_matrix.corr()
+
+        missing_patterns = []
+        for col1 in missing_corr.columns:
+            for col2 in missing_corr.columns:
+                if col1 < col2:
+                    corr = missing_corr.loc[col1, col2]
+                    if corr > 0.5:
+                        missing_patterns.append({
+                            'Column 1': col1,
+                            'Column 2': col2,
+                            'Correlation': corr
+                        })
+
+        return pd.DataFrame(missing_patterns)
+
+    def analyze_missing_by_category(self, category_col):
+        """Analyze missing values distribution across categories."""
+        if category_col in self.df.columns:
+            print(f"\nMissing Values Analysis by {category_col}:")
+            missing_by_cat = self.df.groupby(category_col).apply(
+                lambda x: (x.isnull().sum() / len(x) * 100).round(2)
+            )
+
+            plt.figure(figsize=(12, 6))
+            missing_by_cat.plot(kind='bar')
+            plt.title(f'Missing Values Percentage by {category_col}')
+            plt.xlabel(category_col)
+            plt.ylabel('Missing Percentage')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.show()
+
+            return missing_by_cat
+        else:
+            print(f"Column '{category_col}' not found in the dataset.")
+            return None
+
+    def suggest_missing_value_strategies(self):
+        """Suggest strategies for handling missing values based on data analysis."""
+        missing_stats = self.df.isnull().sum() / len(self.df) * 100
+
+        strategies = []
+        for col in self.df.columns:
+            missing_pct = missing_stats[col]
+            dtype = self.df[col].dtype
+
+            if missing_pct > 0:
+                strategy = {
+                    'Column': col,
+                    'Missing Percentage': round(missing_pct, 2),
+                    'Data Type': dtype,
+                    'Suggested Strategy': self._get_strategy(col, missing_pct, dtype)
+                }
+                strategies.append(strategy)
+
+        return pd.DataFrame(strategies)
+
+    def _get_strategy(self, col, missing_pct, dtype):
+        """Determine the best strategy for handling missing values."""
+        if missing_pct > 50:
+            return "Consider dropping the column if not critical"
+        elif dtype in ['float64', 'int64']:
+            if missing_pct < 5:
+                return "Use mean/median imputation"
+            else:
+                return "Use advanced imputation (KNN, MICE) or model-based imputation"
+        elif dtype == 'object':
+            if missing_pct < 5:
+                return "Use mode imputation"
+            else:
+                return "Use advanced imputation or create 'Missing' category"
+        elif 'date' in str(dtype).lower():
+            return "Use forward/backward fill or interpolation"
+        else:
+            return "Review data and domain knowledge for appropriate strategy"
+
+    def check_total_claim_premium(self):
+        """Check missing stats specifically for TotalPremium and TotalClaim."""
+        missing_stats = self.analyze_missing_values()
+        selected = missing_stats.loc[missing_stats.index.isin(['TotalPremium', 'TotalClaim'])]
+        print("\n=== Missing Summary for TotalPremium and TotalClaim ===")
+        print(selected)
+
+        pattern_df = self.analyze_missing_patterns()
+        print("\n=== Missing Pattern Correlation between TotalPremium and TotalClaim ===")
+        print(pattern_df[
+            (pattern_df['Column 1'].isin(['TotalPremium', 'TotalClaim'])) &
+            (pattern_df['Column 2'].isin(['TotalPremium', 'TotalClaim']))
+        ])
+
+        strategy_df = self.suggest_missing_value_strategies()
+        print("\n=== Suggested Strategies for TotalPremium and TotalClaim ===")
+        print(strategy_df[strategy_df['Column'].isin(['TotalPremium', 'TotalClaim'])])
+
+    def outliers_boxplot(self, columns=['TotalPremium', 'TotalClaims']):
+        """
+        Detect and remove outliers using the IQR method and visualize with box plots.
+
+        Parameters:
+        -----------
+        columns : list
+            List of numerical columns to analyze for outliers.
+
+        Returns:
+        --------
+        DataFrame
+            DataFrame with outliers removed.
+        """
+        df_clean = self.df.copy()
+        rows_to_drop = set()
+
+        for col in columns:
+            Q1 = df_clean[col].quantile(0.25)
+            Q3 = df_clean[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+
+            # Identify outliers
+            outlier_mask = (df_clean[col] < lower_bound) | (df_clean[col] > upper_bound)
+            outlier_indices = df_clean[col][outlier_mask].index
+            rows_to_drop.update(outlier_indices)
+
+            # Plot boxplot
+            plt.figure(figsize=(8, 4))
+            sns.boxplot(x=df_clean[col])
+            plt.title(f"Boxplot for {col}")
+            plt.xlabel(col)
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()
+
+            # Print stats
+            print(f"\nOutlier Removal for {col}:")
+            print(f"Lower bound: {lower_bound:.2f}, Upper bound: {upper_bound:.2f}")
+            print(f"Number of outliers removed: {len(outlier_indices)}")
+            print(f"Percentage of data removed: {(len(outlier_indices)/len(df_clean))*100:.2f}%")
+
+        # Drop the rows
+        df_clean = df_clean.drop(index=rows_to_drop)
+        print(f"\nTotal rows removed: {len(rows_to_drop)}")
+        print(f"Remaining rows: {len(df_clean)}")
+
+        # Update self.df
+        self.df = df_clean
+
+        return df_clean
+
+    def analyze_portfolio(self):
+        """Analyze overall portfolio metrics and key insights."""
+        # Debug information
+        print(f"Total Premium sum: {self.df['TotalPremium'].sum():,.2f}")
+        print(f"Total Claims sum: {self.df['TotalClaims'].sum():,.2f}")
+        print(f"Number of records: {len(self.df)}")
+        
+        # Check for zero or negative values
+        zero_premium = (self.df['TotalPremium'] <= 0).sum()
+        zero_claims = (self.df['TotalClaims'] < 0).sum()
+        print(f"Records with zero or negative premium: {zero_premium}")
+        print(f"Records with negative claims: {zero_claims}")
+        
+        # Overall Loss Ratio with error handling
+        total_premium = self.df['TotalPremium'].sum()
+        total_claims = self.df['TotalClaims'].sum()
+        
+        if total_premium > 0:
+            loss_ratio = total_claims / total_premium
+            print("\nOverall Portfolio Loss Ratio:")
+            print(f"Loss Ratio: {loss_ratio:.4f}")
+        else:
+            print("\nError: Total Premium is zero or negative, cannot calculate loss ratio")
 
     def plot_box(self, column):
         plt.figure(figsize=(10, 6))
@@ -112,21 +325,6 @@ class InsuranceAnalysis:
         plt.tight_layout()
         plt.show()
 
-    def analyze_data_structure(self):
-        """Analyze data types and structure of the dataset."""
-        print("\nData Types Information:")
-        print(self.df.dtypes)
-        
-        print("\nMemory Usage:")
-        print(self.df.memory_usage(deep=True).sum() / 1024**2, "MB")
-        
-        # Convert date columns if they exist
-        date_columns = ['TransactionMonth', 'VehicleIntroDate']
-        for col in date_columns:
-            if col in self.df.columns:
-                self.df[col] = pd.to_datetime(self.df[col])
-                print(f"\nConverted {col} to datetime")
-
     def analyze_variability(self):
         """Calculate variability metrics for numerical features."""
         numerical_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
@@ -194,7 +392,7 @@ class InsuranceAnalysis:
             
             # 3. Auto Make Distribution by Province
             ax3 = fig.add_subplot(gs[1, :])
-            make_by_province = pd.crosstab(self.df['Province'], self.df['AutoMake'])
+            make_by_province = pd.crosstab(self.df['Province'], self.df['make'])
             make_by_province.plot(kind='bar', stacked=True, ax=ax3)
             ax3.set_title('Auto Make Distribution by Province')
             ax3.set_xlabel('Province')
@@ -211,14 +409,6 @@ class InsuranceAnalysis:
             ax4.set_ylabel('Claims Ratio')
             plt.xticks(rotation=45)
             
-            # 5. Vehicle Age Distribution by Province
-            ax5 = fig.add_subplot(gs[2, 1])
-            sns.boxplot(x='Province', y='VehicleAge', data=self.df, ax=ax5)
-            ax5.set_title('Vehicle Age Distribution by Province')
-            ax5.set_xlabel('Province')
-            ax5.set_ylabel('Vehicle Age')
-            plt.xticks(rotation=45)
-            
             plt.tight_layout()
             plt.show()
             
@@ -226,9 +416,6 @@ class InsuranceAnalysis:
             print("\nGeographic Trends Summary:")
             print("\n1. Premium Statistics by Province:")
             print(self.df.groupby('Province')['TotalPremium'].agg(['mean', 'std', 'min', 'max']))
-            
-            print("\n2. Claims Ratio Statistics by Province:")
-            print(self.df.groupby('Province')['ClaimsRatio'].agg(['mean', 'std', 'min', 'max']))
             
             print("\n3. Most Common Cover Types by Province:")
             print(cover_by_province.idxmax(axis=1))
@@ -238,7 +425,6 @@ class InsuranceAnalysis:
             
             return {
                 'premium_stats': self.df.groupby('Province')['TotalPremium'].agg(['mean', 'std', 'min', 'max']),
-                'claims_ratio_stats': self.df.groupby('Province')['ClaimsRatio'].agg(['mean', 'std', 'min', 'max']),
                 'cover_type_dist': cover_by_province,
                 'auto_make_dist': make_by_province
             }
@@ -337,18 +523,6 @@ class InsuranceAnalysis:
             
             return regional_metrics
 
-    def analyze_data_types(self):
-        """Analyze and display data types of all columns."""
-        print("\n=== Data Types Analysis ===")
-        dtype_info = pd.DataFrame({
-            'Data Type': self.df.dtypes,
-            'Non-Null Count': self.df.count(),
-            'Null Count': self.df.isnull().sum(),
-            'Null Percentage': (self.df.isnull().sum() / len(self.df) * 100).round(2)
-        })
-        print(dtype_info)
-        return dtype_info
-
     def analyze_numerical_features(self):
         """Analyze numerical features with comprehensive statistics."""
         numerical_cols = self.df.select_dtypes(include=['float64', 'int64']).columns
@@ -420,243 +594,6 @@ class InsuranceAnalysis:
             # Boxplot
             sns.boxplot(data=self.df, x=col, ax=ax2)
             ax2.set_title(f'Boxplot of {col}')
-            
-            plt.tight_layout()
-            plt.show()
-
-    def analyze_missing_values(self):
-        """Comprehensive analysis of missing values in the dataset."""
-        # Calculate missing value statistics
-        missing_stats = pd.DataFrame({
-            'Missing Count': self.df.isnull().sum(),
-            'Missing Percentage': (self.df.isnull().sum() / len(self.df) * 100).round(2),
-            'Non-Null Count': self.df.count(),
-            'Total Rows': len(self.df)
-        })
-        
-        # Sort by missing percentage
-        missing_stats = missing_stats.sort_values('Missing Percentage', ascending=False)
-        
-        print("\n=== Missing Values Analysis ===")
-        print("\nMissing Values Summary:")
-        print(missing_stats)
-        
-        # Plot missing values heatmap
-        plt.figure(figsize=(12, 6))
-        sns.heatmap(self.df.isnull(), yticklabels=False, cbar=False, cmap='viridis')
-        plt.title('Missing Values Heatmap')
-        plt.tight_layout()
-        plt.show()
-        
-        # Plot missing values percentage bar chart
-        plt.figure(figsize=(12, 6))
-        missing_stats['Missing Percentage'].plot(kind='bar')
-        plt.title('Missing Values Percentage by Column')
-        plt.xlabel('Columns')
-        plt.ylabel('Missing Percentage')
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.show()
-        
-        # Analyze patterns in missing values
-        print("\nMissing Values Patterns:")
-        missing_patterns = self.analyze_missing_patterns()
-        print(missing_patterns)
-        
-        return missing_stats
-
-    def analyze_missing_patterns(self):
-        """Analyze patterns in missing values across columns."""
-        # Create a binary matrix of missing values
-        missing_matrix = self.df.isnull().astype(int)
-        
-        # Calculate correlation between missing values
-        missing_corr = missing_matrix.corr()
-        
-        # Find columns that tend to have missing values together
-        missing_patterns = []
-        for col1 in missing_corr.columns:
-            for col2 in missing_corr.columns:
-                if col1 < col2:  # Avoid duplicate pairs
-                    corr = missing_corr.loc[col1, col2]
-                    if corr > 0.5:  # Strong positive correlation
-                        missing_patterns.append({
-                            'Column 1': col1,
-                            'Column 2': col2,
-                            'Correlation': corr
-                        })
-        
-        return pd.DataFrame(missing_patterns)
-
-    def analyze_missing_by_category(self, category_col):
-        """Analyze missing values distribution across categories."""
-        if category_col in self.df.columns:
-            print(f"\nMissing Values Analysis by {category_col}:")
-            
-            # Calculate missing percentage by category
-            missing_by_cat = self.df.groupby(category_col).apply(
-                lambda x: (x.isnull().sum() / len(x) * 100).round(2)
-            )
-            
-            # Plot missing values by category
-            plt.figure(figsize=(12, 6))
-            missing_by_cat.plot(kind='bar')
-            plt.title(f'Missing Values Percentage by {category_col}')
-            plt.xlabel(category_col)
-            plt.ylabel('Missing Percentage')
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            plt.show()
-            
-            return missing_by_cat
-        else:
-            print(f"Column {category_col} not found in the dataset")
-            return None
-
-    def suggest_missing_value_strategies(self):
-        """Suggest strategies for handling missing values based on data analysis."""
-        missing_stats = self.df.isnull().sum() / len(self.df) * 100
-        
-        strategies = []
-        for col in self.df.columns:
-            missing_pct = missing_stats[col]
-            dtype = self.df[col].dtype
-            
-            if missing_pct > 0:
-                strategy = {
-                    'Column': col,
-                    'Missing Percentage': missing_pct,
-                    'Data Type': dtype,
-                    'Suggested Strategy': self._get_strategy(col, missing_pct, dtype)
-                }
-                strategies.append(strategy)
-        
-        return pd.DataFrame(strategies)
-
-    def _get_strategy(self, col, missing_pct, dtype):
-        """Determine the best strategy for handling missing values."""
-        if missing_pct > 50:
-            return "Consider dropping the column if not critical"
-        elif dtype in ['float64', 'int64']:
-            if missing_pct < 5:
-                return "Use mean/median imputation"
-            else:
-                return "Use advanced imputation (KNN, MICE) or model-based imputation"
-        elif dtype == 'object':
-            if missing_pct < 5:
-                return "Use mode imputation"
-            else:
-                return "Use advanced imputation or create 'Missing' category"
-        elif 'date' in str(dtype).lower():
-            return "Use forward/backward fill or interpolation"
-        else:
-            return "Review data and domain knowledge for appropriate strategy"
-
-    def drop_outliers_zscore(self, columns=None):
-        """
-        Drop outliers with Z-score greater than 3.
-        
-        Parameters:
-        -----------
-        columns : list, optional
-            List of columns to analyze. If None, analyzes all numerical columns.
-            
-        Returns:
-        --------
-        DataFrame
-            DataFrame with outliers removed.
-        """
-        if columns is None:
-            columns = self.df.select_dtypes(include=['float64', 'int64']).columns
-        
-        # Create a copy of the DataFrame
-        df_clean = self.df.copy()
-        
-        # Track rows to drop
-        rows_to_drop = set()
-        
-        for col in columns:
-            # Calculate Z-scores
-            z_scores = np.abs(stats.zscore(df_clean[col].dropna()))
-            
-            # Create a boolean mask for outliers
-            outlier_mask = np.zeros(len(df_clean), dtype=bool)
-            outlier_mask[df_clean[col].dropna().index] = z_scores > 3
-            
-            # Find outlier indices
-            outlier_indices = df_clean[col][outlier_mask].index
-            rows_to_drop.update(outlier_indices)
-            
-            # Print statistics
-            print(f"\nOutlier Removal for {col}:")
-            print(f"Number of outliers removed: {len(outlier_indices)}")
-            print(f"Percentage of data removed: {(len(outlier_indices)/len(df_clean))*100:.2f}%")
-        
-        # Drop the rows
-        df_clean = df_clean.drop(index=rows_to_drop)
-        print(f"\nTotal rows removed: {len(rows_to_drop)}")
-        print(f"Remaining rows: {len(df_clean)}")
-        
-        # Update the DataFrame
-        self.df = df_clean
-        
-        return df_clean
-
-    def analyze_numerical_distributions(self, columns=None):
-        """
-        Analyze and plot distributions of numerical variables.
-        
-        Parameters:
-        -----------
-        columns : list, optional
-            List of numerical columns to analyze. If None, analyzes all numerical columns.
-        """
-        if columns is None:
-            columns = self.df.select_dtypes(include=['float64', 'int64']).columns
-        
-        for col in columns:
-            # Create figure with subplots
-            fig = plt.figure(figsize=(15, 10))
-            gs = fig.add_gridspec(3, 2)
-            
-            # Histogram with KDE
-            ax1 = fig.add_subplot(gs[0, :])
-            sns.histplot(data=self.df, x=col, kde=True, ax=ax1)
-            ax1.set_title(f'Distribution of {col}')
-            
-            # Box plot
-            ax2 = fig.add_subplot(gs[1, 0])
-            sns.boxplot(data=self.df, y=col, ax=ax2)
-            ax2.set_title(f'Box Plot of {col}')
-            
-            # Violin plot
-            ax3 = fig.add_subplot(gs[1, 1])
-            sns.violinplot(data=self.df, y=col, ax=ax3)
-            ax3.set_title(f'Violin Plot of {col}')
-            
-            # Q-Q plot
-            ax4 = fig.add_subplot(gs[2, 0])
-            stats.probplot(self.df[col].dropna(), dist="norm", plot=ax4)
-            ax4.set_title(f'Q-Q Plot of {col}')
-            
-            # Summary statistics
-            ax5 = fig.add_subplot(gs[2, 1])
-            ax5.axis('off')
-            stats_text = f"""
-            Summary Statistics for {col}:
-            
-            Count: {self.df[col].count():,.0f}
-            Mean: {self.df[col].mean():,.2f}
-            Std: {self.df[col].std():,.2f}
-            Min: {self.df[col].min():,.2f}
-            25%: {self.df[col].quantile(0.25):,.2f}
-            50%: {self.df[col].median():,.2f}
-            75%: {self.df[col].quantile(0.75):,.2f}
-            Max: {self.df[col].max():,.2f}
-            Skewness: {self.df[col].skew():,.2f}
-            Kurtosis: {self.df[col].kurtosis():,.2f}
-            """
-            ax5.text(0.1, 0.5, stats_text, fontsize=10, va='center')
             
             plt.tight_layout()
             plt.show()
